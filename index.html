@@ -26,17 +26,17 @@
         <span class="brand-app-name">SOFTWARE DE GESTIÓN DOCUMENTAL</span>
       </div>
       <div class="session-bar" aria-label="Rol y perfil (demo)">
-        <div class="notif-bell" title="Notificaciones (HU3) en Inicio" onclick="location.hash='home'">
+        <button type="button" class="notif-bell" title="Notificaciones (HU3) en Inicio" onclick="location.hash='home'" aria-label="Ir a notificaciones">
           <i class="fas fa-bell"></i>
           <span class="notif-dot show"></span>
-        </div>
+        </button>
         <span class="session-hint">Rol</span>
-        <select id="roleSelect" aria-label="Cambiar rol (validación de permisos OE2)">
-          <option value="admin">Administrador</option>
-          <option value="aprobador">Aprobador</option>
-          <option value="usuario">Usuario (solicitante)</option>
-          <option value="consulta">Solo consulta</option>
-        </select>
+        <div class="role-pill" aria-label="Selector de rol (OE2 - control de acceso)">
+          <select id="roleSelect" aria-label="Cambiar rol (validación de permisos OE2)">
+            <!-- Opciones se cargan dinámicamente desde la configuración de roles (OE2) -->
+          </select>
+          <i class="fas fa-chevron-down role-pill-caret" aria-hidden="true"></i>
+        </div>
       </div>
     </div>
 
@@ -158,7 +158,9 @@
           <div class="config-tabs">
             <button type="button" class="config-tab active" id="tabtipos">Tipos documentales</button>
             <button type="button" class="config-tab" id="tabflujos">Flujos de aprobación</button>
-            <button type="button" class="config-tab" id="tabperms">Permisos por rol</button>
+            <button type="button" class="config-tab" id="tabroles">Roles</button>
+            <button type="button" class="config-tab" id="tabusuarios">Usuarios</button>
+            <button type="button" class="config-tab" id="tabperms">Matriz de permisos</button>
           </div>
 
           <div id="paneTipos" class="pane show">
@@ -188,6 +190,52 @@
             <p class="subtitle">Cada flujo vincula un tipo documental con responsables en orden secuencial (fase 2, OE2).</p>
             <div id="listaFlujos"></div>
             <p class="admin-only subtitle" style="margin:0.8rem 0 0.2rem 0">La edición de flujos vía formulario extendido se puede añadir en fases futuras; aquí se <strong>visualizan</strong> los flujos sembrados y la integridad (niveles con responsable).</p>
+          </div>
+
+          <!-- OE2 — Pestaña de Roles (mockup: Rol | Permiso | Nivel aprobación) -->
+          <div id="paneRoles" class="pane">
+            <div class="gestion-panel" aria-label="Gestión de roles">
+              <h2 class="gestion-title">GESTIÓN DE USUARIOS</h2>
+              <div class="gestion-table" role="table" aria-label="Roles, permisos y niveles de aprobación">
+                <div class="gestion-row gestion-row--head" role="row">
+                  <span class="gestion-radio" aria-hidden="true"></span>
+                  <span class="gestion-cell" role="columnheader">Rol</span>
+                  <span class="gestion-sep" aria-hidden="true">|</span>
+                  <span class="gestion-cell" role="columnheader">Permiso</span>
+                  <span class="gestion-sep" aria-hidden="true">|</span>
+                  <span class="gestion-cell" role="columnheader">Nivel aprobación</span>
+                </div>
+                <div id="rolesBody" role="rowgroup"></div>
+              </div>
+              <div class="gestion-actions">
+                <button type="button" class="btn btn-pill admin-only" id="editRolesBtn"><i class="fas fa-pen"></i> Editar</button>
+                <button type="button" class="btn btn-pill btn-primary admin-only" id="saveRolesBtn"><i class="fas fa-floppy-disk"></i> Guardar configuración</button>
+              </div>
+              <p class="subtitle gestion-foot">La edición está disponible solo para el rol <strong>Administrador</strong> (OE2 — control de acceso).</p>
+            </div>
+          </div>
+
+          <!-- OE2 — Pestaña de Usuarios (mockup: Nombre | Rol | Estado) -->
+          <div id="paneUsuarios" class="pane">
+            <div class="gestion-panel" aria-label="Gestión de usuarios">
+              <h2 class="gestion-title">GESTIÓN DE USUARIOS</h2>
+              <div class="gestion-table" role="table" aria-label="Usuarios registrados, rol asignado y estado">
+                <div class="gestion-row gestion-row--head" role="row">
+                  <span class="gestion-radio" aria-hidden="true"></span>
+                  <span class="gestion-cell" role="columnheader">Nombre</span>
+                  <span class="gestion-sep" aria-hidden="true">|</span>
+                  <span class="gestion-cell" role="columnheader">Rol</span>
+                  <span class="gestion-sep" aria-hidden="true">|</span>
+                  <span class="gestion-cell" role="columnheader">Estado</span>
+                </div>
+                <div id="usuariosBody" role="rowgroup"></div>
+              </div>
+              <div class="gestion-actions">
+                <button type="button" class="btn btn-pill admin-only" id="editUsuarioBtn" disabled><i class="fas fa-pen"></i> Editar</button>
+                <button type="button" class="btn btn-pill btn-primary admin-only" id="addUsuarioBtn"><i class="fas fa-user-plus"></i> Agregar usuario</button>
+              </div>
+              <p class="subtitle gestion-foot">Seleccione un usuario para habilitar el botón <strong>Editar</strong>. Los usuarios <em>Inactivos</em> no aparecen en el selector de rol.</p>
+            </div>
           </div>
 
           <div id="panePerms" class="pane">
@@ -305,6 +353,33 @@
         </div>
       </div>
     </div>
+    <!-- OE2 — Modal de alta / edición de usuario (mockup gestión de usuarios) -->
+    <div class="modal-mask" id="userModal" style="z-index:1200">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="userModalTitle">Agregar usuario</h3>
+          <button type="button" class="close-modal" id="closeUserModal" aria-label="Cerrar">&times;</button>
+        </div>
+        <div class="modal-body" style="padding:0.6rem 1.2rem 0.4rem">
+          <div class="form-block" style="max-width:none">
+            <label for="usrNombre">Nombre completo</label>
+            <input type="text" id="usrNombre" placeholder="p. ej. Camila Pérez" />
+            <label for="usrRol" style="margin-top:0.4rem">Rol</label>
+            <select id="usrRol"></select>
+            <label for="usrEstado" style="margin-top:0.4rem">Estado</label>
+            <select id="usrEstado">
+              <option value="Activo">Activo</option>
+              <option value="Inactivo">Inactivo</option>
+            </select>
+            <p style="margin:0.9rem 0 0.2rem 0" class="btn-group">
+              <button type="button" class="btn btn-primary" id="submitUser"><i class="fas fa-check"></i> Guardar</button>
+              <button type="button" class="btn" id="deleteUserBtn" style="display:none"><i class="fas fa-trash"></i> Eliminar</button>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <p class="app-version" title="Demostración">V 2.0</p>
   </div>
 

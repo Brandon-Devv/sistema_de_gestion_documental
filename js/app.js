@@ -243,18 +243,23 @@
   }
 
   var configTab = "tipos";
+  var rolesEditMode = false;
+  var selectedUsuarioId = null;
+  var editingUsuarioId = null;
   function renderConfig() {
     const d = GestionDoc.load();
     const isAd = d.session.role === "admin";
     document.querySelectorAll(".admin-only").forEach(function (e) { e.classList.toggle("hidden", !isAd); });
     var wMsg = document.getElementById("configWarn");
     if (wMsg) wMsg.style.display = isAd ? "none" : "block";
-    document.getElementById("paneTipos").classList.toggle("show", configTab === "tipos");
-    document.getElementById("paneFlujos").classList.toggle("show", configTab === "flujos");
-    document.getElementById("panePerms").classList.toggle("show", configTab === "perms");
-    document.getElementById("tabtipos").classList.toggle("active", configTab === "tipos");
-    document.getElementById("tabflujos").classList.toggle("active", configTab === "flujos");
-    document.getElementById("tabperms").classList.toggle("active", configTab === "perms");
+    var panes = ["Tipos", "Flujos", "Roles", "Usuarios", "Perms"];
+    var tabs = ["tipos", "flujos", "roles", "usuarios", "perms"];
+    panes.forEach(function (p, i) {
+      var pane = document.getElementById("pane" + p);
+      if (pane) pane.classList.toggle("show", configTab === tabs[i]);
+      var tab = document.getElementById("tab" + tabs[i]);
+      if (tab) tab.classList.toggle("active", configTab === tabs[i]);
+    });
 
     var tipBody = document.getElementById("tablaTipos");
     if (tipBody) {
@@ -278,11 +283,37 @@
       fBody.innerHTML = d.flujosAprobacion
         .map(function (f) {
           var tnom = (d.tiposDocumental.find(function (x) { return x.id === f.tipoId; }) || {}).nombre || f.tipoId;
+          var modoCls = f.modo === "paralelo" ? "flujo-modo flujo-modo--par" : "flujo-modo flujo-modo--seq";
+          var modoIcon = f.modo === "paralelo" ? "fa-code-branch" : "fa-arrow-right-long";
+          // Validación visual de integridad: nivel sin responsable se marca en rojo
+          var integridadOk = (f.niveles || []).every(function (n) { return n.responsable && n.responsable.trim(); });
+          var integridadHtml = integridadOk
+            ? "<span class='flujo-int flujo-int--ok'><i class='fas fa-circle-check'></i> Integridad OK</span>"
+            : "<span class='flujo-int flujo-int--err'><i class='fas fa-circle-exclamation'></i> Falta responsable</span>";
+          var niveles = (f.niveles || [])
+            .map(function (n, idx) {
+              var sep = idx < f.niveles.length - 1
+                ? "<i class='fas fa-chevron-right flujo-sep' aria-hidden='true'></i>"
+                : "";
+              return (
+                "<div class='flujo-nivel'>" +
+                "<span class='flujo-orden'>N" + n.orden + "</span>" +
+                "<div class='flujo-nivel-info'>" +
+                "<span class='flujo-rol'>" + escapeHtml(n.rol) + "</span>" +
+                "<span class='flujo-resp'><i class='fas fa-user-check'></i> " + escapeHtml(n.responsable || "—") + "</span>" +
+                "</div>" + sep + "</div>"
+              );
+            })
+            .join("");
           return (
-            "<div class='detail-box' style='margin:0.5rem 0'> <h3>" + escapeHtml(tnom) + " <small style='color:#94a3b8'>(" + escapeHtml(f.modo) + ")</small></h3> " +
-            f.niveles
-              .map(function (n) { return "<div class='detail-row'><span>Orden " + n.orden + "</span><span>" + escapeHtml(n.rol) + " → " + escapeHtml(n.responsable) + "</span></div>"; })
-              .join("") + "</div>"
+            "<div class='flujo-card'>" +
+            "<div class='flujo-card-head'>" +
+            "<h3 class='flujo-tipo'>" + escapeHtml(tnom) + "</h3>" +
+            "<span class='" + modoCls + "'><i class='fas " + modoIcon + "'></i> " + escapeHtml(f.modo) + "</span>" +
+            integridadHtml +
+            "</div>" +
+            "<div class='flujo-pasos'>" + niveles + "</div>" +
+            "</div>"
           );
         })
         .join("");
@@ -302,6 +333,177 @@
         .map(function (l) { return "<div>" + formatEsFor(l.fecha) + " — <b>" + escapeHtml(l.usuario) + "</b> " + escapeHtml(l.accion) + (l.detalle ? " · " + escapeHtml(l.detalle) : "") + "</div>"; })
         .join("");
     }
+
+    renderRoles();
+    renderUsuarios();
+  }
+
+  function renderRoles() {
+    const d = GestionDoc.load();
+    const body = document.getElementById("rolesBody");
+    if (!body) return;
+    const editable = rolesEditMode && GestionDoc.isAdmin();
+    body.innerHTML = (d.roles || []).map(function (r) {
+      const cell = function (key, val) {
+        return editable
+          ? "<input class='gestion-input' data-rid='" + r.id + "' data-rkey='" + key + "' value='" + escapeHtml(val) + "' />"
+          : "<span>" + escapeHtml(val) + "</span>";
+      };
+      return (
+        "<div class='gestion-row' role='row' data-rid='" + r.id + "'>" +
+        "<span class='gestion-radio' aria-hidden='true'></span>" +
+        "<span class='gestion-cell gestion-cell--name'>" + cell("nombre", r.nombre) + "</span>" +
+        "<span class='gestion-sep' aria-hidden='true'>|</span>" +
+        "<span class='gestion-cell'>" + cell("permiso", r.permiso) + "</span>" +
+        "<span class='gestion-sep' aria-hidden='true'>|</span>" +
+        "<span class='gestion-cell'>" + cell("nivel", r.nivel) + "</span>" +
+        "</div>"
+      );
+    }).join("");
+    var sBtn = document.getElementById("saveRolesBtn");
+    var eBtn = document.getElementById("editRolesBtn");
+    if (sBtn) sBtn.disabled = !editable;
+    if (eBtn) {
+      eBtn.classList.toggle("active", rolesEditMode);
+      eBtn.innerHTML = rolesEditMode
+        ? "<i class='fas fa-xmark'></i> Cancelar"
+        : "<i class='fas fa-pen'></i> Editar";
+    }
+  }
+
+  function saveRoles() {
+    if (!GestionDoc.isAdmin()) { showToast("Sin permiso (OE2 control de acceso)", true); return; }
+    const d = GestionDoc.load();
+    const rows = (d.roles || []).map(function (r) {
+      const nombreI = document.querySelector("input[data-rid='" + r.id + "'][data-rkey='nombre']");
+      const permI = document.querySelector("input[data-rid='" + r.id + "'][data-rkey='permiso']");
+      const nivI = document.querySelector("input[data-rid='" + r.id + "'][data-rkey='nivel']");
+      return {
+        id: r.id,
+        nombre: nombreI ? nombreI.value.trim() : r.nombre,
+        permiso: permI ? permI.value.trim() : r.permiso,
+        nivel: nivI ? nivI.value.trim() : r.nivel
+      };
+    });
+    var res = GestionDoc.updateRoles(rows);
+    if (!res.ok) { showToast(res.msg, true); return; }
+    rolesEditMode = false;
+    showToast("Configuración de roles guardada");
+    renderConfig();
+    refreshRoleSelect();
+  }
+
+  function getRolNombreById(rolId) {
+    const d = GestionDoc.load();
+    var r = (d.roles || []).find(function (x) { return x.id === rolId; });
+    return r ? r.nombre : rolId;
+  }
+
+  function renderUsuarios() {
+    const d = GestionDoc.load();
+    const body = document.getElementById("usuariosBody");
+    if (!body) return;
+    body.innerHTML = (d.usuarios || []).map(function (u) {
+      const sel = selectedUsuarioId === u.id ? " gestion-row--selected" : "";
+      const estCls = u.estado === "Activo" ? "gestion-estado gestion-estado--on" : "gestion-estado gestion-estado--off";
+      return (
+        "<div class='gestion-row gestion-row--btn" + sel + "' role='row' data-uid='" + u.id + "' tabindex='0'>" +
+        "<span class='gestion-radio'" + (selectedUsuarioId === u.id ? " data-on='1'" : "") + "></span>" +
+        "<span class='gestion-cell gestion-cell--name'>" + escapeHtml(u.nombre) + "</span>" +
+        "<span class='gestion-sep' aria-hidden='true'>|</span>" +
+        "<span class='gestion-cell'>" + escapeHtml(getRolNombreById(u.rolId)) + "</span>" +
+        "<span class='gestion-sep' aria-hidden='true'>|</span>" +
+        "<span class='gestion-cell'><span class='" + estCls + "'>" + escapeHtml(u.estado) + "</span></span>" +
+        "</div>"
+      );
+    }).join("");
+    body.querySelectorAll(".gestion-row--btn").forEach(function (row) {
+      row.addEventListener("click", function () {
+        var uid = row.getAttribute("data-uid");
+        selectedUsuarioId = (selectedUsuarioId === uid) ? null : uid;
+        renderUsuarios();
+        var btn = document.getElementById("editUsuarioBtn");
+        if (btn) btn.disabled = !selectedUsuarioId || !GestionDoc.isAdmin();
+      });
+      row.addEventListener("dblclick", function () {
+        if (!GestionDoc.isAdmin()) return;
+        selectedUsuarioId = row.getAttribute("data-uid");
+        openUserModal(selectedUsuarioId);
+      });
+    });
+    var btn = document.getElementById("editUsuarioBtn");
+    if (btn) btn.disabled = !selectedUsuarioId || !GestionDoc.isAdmin();
+  }
+
+  function fillRolSelect(selectEl, current) {
+    if (!selectEl) return;
+    const d = GestionDoc.load();
+    selectEl.innerHTML = (d.roles || [])
+      .map(function (r) { return "<option value='" + escapeHtml(r.id) + "'" + (current === r.id ? " selected" : "") + ">" + escapeHtml(r.nombre) + "</option>"; })
+      .join("");
+  }
+
+  function openUserModal(uid) {
+    if (!GestionDoc.isAdmin()) { showToast("Solo el Administrador puede editar usuarios (OE2)", true); return; }
+    const d = GestionDoc.load();
+    editingUsuarioId = uid || null;
+    const u = uid ? d.usuarios.find(function (x) { return x.id === uid; }) : null;
+    document.getElementById("userModalTitle").textContent = u ? "Editar usuario" : "Agregar usuario";
+    (document.getElementById("usrNombre") || {}).value = u ? u.nombre : "";
+    fillRolSelect(document.getElementById("usrRol"), u ? u.rolId : (d.roles[0] && d.roles[0].id));
+    (document.getElementById("usrEstado") || {}).value = u ? u.estado : "Activo";
+    var del = document.getElementById("deleteUserBtn");
+    if (del) del.style.display = u ? "inline-flex" : "none";
+    document.getElementById("userModal").classList.add("active");
+    document.body.classList.add("modal-open");
+  }
+
+  function closeUserModal() {
+    document.getElementById("userModal").classList.remove("active");
+    document.body.classList.remove("modal-open");
+    editingUsuarioId = null;
+  }
+
+  function submitUser() {
+    if (!GestionDoc.isAdmin()) return;
+    const nombre = (document.getElementById("usrNombre") || {}).value;
+    const rolId = (document.getElementById("usrRol") || {}).value;
+    const estado = (document.getElementById("usrEstado") || {}).value;
+    var r = GestionDoc.upsertUsuario({ id: editingUsuarioId, nombre: nombre, rolId: rolId, estado: estado });
+    if (!r.ok) { showToast(r.msg, true); return; }
+    showToast(editingUsuarioId ? "Usuario actualizado" : "Usuario agregado");
+    closeUserModal();
+    renderUsuarios();
+    refreshRoleSelect();
+    renderConfig();
+  }
+
+  function deleteUser() {
+    if (!editingUsuarioId) return;
+    if (!confirm("¿Eliminar este usuario?")) return;
+    var r = GestionDoc.deleteUsuario(editingUsuarioId);
+    if (!r.ok) { showToast(r.msg, true); return; }
+    showToast("Usuario eliminado");
+    selectedUsuarioId = null;
+    closeUserModal();
+    renderUsuarios();
+    refreshRoleSelect();
+    renderConfig();
+  }
+
+  /**
+   * OE2 — Selector superior de rol: se alimenta de la lista de roles
+   * configurada en el módulo Configuración → Roles, y respeta los usuarios
+   * activos disponibles para iniciar sesión simulada.
+   */
+  function refreshRoleSelect() {
+    const d = GestionDoc.load();
+    const sel = document.getElementById("roleSelect");
+    if (!sel) return;
+    const current = d.session.role;
+    sel.innerHTML = (d.roles || [])
+      .map(function (r) { return "<option value='" + escapeHtml(r.id) + "'" + (r.id === current ? " selected" : "") + ">" + escapeHtml(r.nombre) + "</option>"; })
+      .join("");
   }
 
   function formatEsFor(iso) {
@@ -565,26 +767,63 @@
       if (e.key === "Escape") {
         closeFlowModal();
         closeUpload();
+        closeUserModal();
       }
     });
 
+    refreshRoleSelect();
     var roleSel = document.getElementById("roleSelect");
     if (roleSel) {
       roleSel.addEventListener("change", function () {
-        GestionDoc.setSession({ role: this.value });
+        const d = GestionDoc.load();
+        const newRole = this.value;
+        // Toma el primer usuario activo con ese rol como "sesión simulada"
+        const u = (d.usuarios || []).find(function (x) { return x.rolId === newRole && x.estado === "Activo"; });
+        const patch = { role: newRole };
+        if (u) patch.userName = u.nombre;
+        GestionDoc.setSession(patch);
         renderConfig();
         if (getRoute() === "repositorio") renderRepositorio();
-        showToast("Rol: " + this.value);
+        const nombreRol = (d.roles.find(function (r) { return r.id === newRole; }) || {}).nombre || newRole;
+        showToast("Rol activo: " + nombreRol);
       });
-      roleSel.value = GestionDoc.load().session.role;
     }
 
     document.getElementById("tabtipos").addEventListener("click", function () { configTab = "tipos"; renderConfig(); });
     document.getElementById("tabflujos").addEventListener("click", function () { configTab = "flujos"; renderConfig(); });
+    document.getElementById("tabroles").addEventListener("click", function () { configTab = "roles"; renderConfig(); });
+    document.getElementById("tabusuarios").addEventListener("click", function () { configTab = "usuarios"; renderConfig(); });
     document.getElementById("tabperms").addEventListener("click", function () { configTab = "perms"; renderConfig(); });
     document.getElementById("addTipoBtn").addEventListener("click", addTipo);
     var saveM = document.getElementById("saveMatrizBtn");
     if (saveM) saveM.addEventListener("click", saveMatriz);
+
+    // OE2 — Roles
+    var editRolesBtn = document.getElementById("editRolesBtn");
+    if (editRolesBtn) editRolesBtn.addEventListener("click", function () {
+      if (!GestionDoc.isAdmin()) { showToast("Solo Administrador puede editar (OE2)", true); return; }
+      rolesEditMode = !rolesEditMode;
+      renderRoles();
+    });
+    var saveRolesBtn = document.getElementById("saveRolesBtn");
+    if (saveRolesBtn) saveRolesBtn.addEventListener("click", saveRoles);
+
+    // OE2 — Usuarios
+    var addUsuarioBtn = document.getElementById("addUsuarioBtn");
+    if (addUsuarioBtn) addUsuarioBtn.addEventListener("click", function () { openUserModal(null); });
+    var editUsuarioBtn = document.getElementById("editUsuarioBtn");
+    if (editUsuarioBtn) editUsuarioBtn.addEventListener("click", function () {
+      if (!selectedUsuarioId) { showToast("Seleccione un usuario primero", true); return; }
+      openUserModal(selectedUsuarioId);
+    });
+    var closeUM = document.getElementById("closeUserModal");
+    if (closeUM) closeUM.addEventListener("click", closeUserModal);
+    var subUser = document.getElementById("submitUser");
+    if (subUser) subUser.addEventListener("click", submitUser);
+    var delUserBtn = document.getElementById("deleteUserBtn");
+    if (delUserBtn) delUserBtn.addEventListener("click", deleteUser);
+    var userM = document.getElementById("userModal");
+    if (userM) userM.addEventListener("click", function (e) { if (e.target.id === "userModal") closeUserModal(); });
     var btnNew = document.getElementById("openUploadBtn");
     if (btnNew) btnNew.addEventListener("click", openUploadModal);
     var closeUp = document.getElementById("closeUpModal");
